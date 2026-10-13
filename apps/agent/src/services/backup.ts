@@ -36,6 +36,7 @@ export function exportData(s: Services): Backup {
       ),
       tasks: db.all(`SELECT * FROM tal_tasks ORDER BY created_at`),
       notes: db.all(`SELECT * FROM tal_notes ORDER BY created_at`),
+      folders: db.all(`SELECT * FROM tal_folders ORDER BY created_at`),
       projects: db.all(`SELECT * FROM tal_projects ORDER BY created_at`),
       automations: db
         .all<Record<string, unknown>>(`SELECT id, name, kind, message, schedule, enabled, created_at, updated_at FROM tal_automations`)
@@ -50,6 +51,7 @@ export interface ImportSummary {
   memories: number;
   tasks: number;
   notes: number;
+  folders: number;
   projects: number;
   automations: number;
   /** Imported automations always arrive paused; the owner enables them. */
@@ -148,11 +150,24 @@ export async function importData(s: Services, raw: unknown): Promise<ImportSumma
         projectExists(t.project_id) ? t.project_id : null, t.created_at, t.updated_at, strOrNull(t.completed_at),
       );
     }
+    // Folders are inserted in created_at order, so a folder is always created before the children exported
+    // after it; a parent that still can't be found (a malformed or hand-edited backup) is dropped to root
+    // rather than rejecting the whole import.
+    const folderExists = (id: unknown) => typeof id === "string" && !!db.one(`SELECT 1 AS x FROM tal_folders WHERE id = ?`, id);
+    for (const f of d.folders) {
+      db.run(
+        `INSERT INTO tal_folders (id, name, parent_folder_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET name = excluded.name, parent_folder_id = excluded.parent_folder_id, updated_at = excluded.updated_at`,
+        f.id, f.name, folderExists(f.parent_folder_id) ? f.parent_folder_id : null, f.created_at, f.updated_at,
+      );
+    }
     for (const n of d.notes) {
       db.run(
-        `INSERT INTO tal_notes (id, title, content, project_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET title = excluded.title, content = excluded.content, project_id = excluded.project_id, updated_at = excluded.updated_at`,
-        n.id, n.title, n.content, projectExists(n.project_id) ? n.project_id : null, n.created_at, n.updated_at,
+        `INSERT INTO tal_notes (id, title, content, project_id, parent_folder_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET title = excluded.title, content = excluded.content, project_id = excluded.project_id,
+           parent_folder_id = excluded.parent_folder_id, updated_at = excluded.updated_at`,
+        n.id, n.title, n.content, projectExists(n.project_id) ? n.project_id : null, folderExists(n.parent_folder_id) ? n.parent_folder_id : null,
+        n.created_at, n.updated_at,
       );
     }
     let automations = 0;
@@ -188,6 +203,7 @@ export async function importData(s: Services, raw: unknown): Promise<ImportSumma
       memories: d.memories.length,
       tasks: d.tasks.length,
       notes: d.notes.length,
+      folders: d.folders.length,
       projects: d.projects.length,
       automations,
       automations_paused: automations,

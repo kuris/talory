@@ -71,6 +71,38 @@ describe("notes and projects", () => {
     await c.call(`/api/notes/${note.id}`, { method: "DELETE" });
   });
 
+  it("nests folders without limit, with notes and folders at root by default", async () => {
+    const c = await loggedIn();
+    const { folder: work } = await c.json("/api/folders", { method: "POST", body: { name: "Work" } });
+    expect(work.parent_folder_id).toBeNull();
+    const { folder: projects } = await c.json("/api/folders", { method: "POST", body: { name: "Projects", parent_folder_id: work.id } });
+    const { note } = await c.json("/api/notes", { method: "POST", body: { title: "Nested", parent_folder_id: projects.id } });
+    expect(note.parent_folder_id).toBe(projects.id);
+
+    const { folders } = await c.json("/api/folders");
+    expect(folders.map((f: any) => f.id).sort()).toEqual([projects.id, work.id].sort());
+    expect((await c.json("/api/notes?all=1")).notes.map((n: any) => n.id)).toContain(note.id);
+
+    // Renaming is a plain update; moving checks for cycles.
+    await c.json(`/api/folders/${projects.id}`, { method: "PATCH", body: { name: "Client Projects" } });
+    expect((await c.call(`/api/folders/${work.id}`, { method: "PATCH", body: { parent_folder_id: projects.id } })).status).toBe(400);
+    expect((await c.call(`/api/folders/${work.id}`, { method: "PATCH", body: { parent_folder_id: work.id } })).status).toBe(400);
+
+    // A folder can't be moved under, and a note can't be filed under, a folder that doesn't exist.
+    expect((await c.call(`/api/folders/${projects.id}`, { method: "PATCH", body: { parent_folder_id: "missing" } })).status).toBe(400);
+    expect((await c.call("/api/notes", { method: "POST", body: { title: "x", parent_folder_id: "missing" } })).status).toBe(400);
+
+    // Deleting a folder cascades to its subfolders and the notes inside them — but not siblings.
+    const { note: sibling } = await c.json("/api/notes", { method: "POST", body: { title: "Root level" } });
+    const contents = await c.json(`/api/folders/${work.id}/contents`);
+    expect(contents).toEqual({ folders: 1, notes: 1 });
+    const deleted = await c.json(`/api/folders/${work.id}`, { method: "DELETE" });
+    expect(deleted).toMatchObject({ deleted: true, folders: 1, notes: 1 });
+    expect((await c.json("/api/folders")).folders).toHaveLength(0);
+    expect((await c.call(`/api/notes/${note.id}`)).status).toBe(404);
+    expect((await c.json(`/api/notes/${sibling.id}`)).note.parent_folder_id).toBeNull();
+  });
+
   it("partial updates leave omitted fields unchanged", async () => {
     const c = await loggedIn();
     const { project } = await c.json("/api/projects", { method: "POST", body: { name: "Kitchen", description: "Renovation plan", status: "paused" } });

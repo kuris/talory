@@ -17,6 +17,11 @@ export class NoteRepository {
     return this.db.all<Note>(`SELECT * FROM tal_notes ${where} ORDER BY updated_at DESC LIMIT ?`, ...params, opts.limit ?? 500);
   }
 
+  /** Every note, for building the folder tree client-side. Not paginated: a single owner's notes fit comfortably in memory. */
+  listAll(): Note[] {
+    return this.db.all<Note>(`SELECT * FROM tal_notes ORDER BY title COLLATE NOCASE`);
+  }
+
   search(q: string, limit = 20): Note[] {
     const match = ftsQuery(q);
     if (match) {
@@ -43,29 +48,30 @@ export class NoteRepository {
     return n;
   }
 
-  create(input: { title: string; content?: string; project_id?: string | null }): Note {
+  create(input: { title: string; content?: string; project_id?: string | null; parent_folder_id?: string | null }): Note {
     const ts = now();
     const note: Note = {
       id: newId(),
       title: input.title.trim(),
       content: input.content ?? "",
       project_id: input.project_id ?? null,
+      parent_folder_id: input.parent_folder_id ?? null,
       created_at: ts,
       updated_at: ts,
     };
     this.db.run(
-      `INSERT INTO tal_notes (id, title, content, project_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
-      note.id, note.title, note.content, note.project_id, note.created_at, note.updated_at,
+      `INSERT INTO tal_notes (id, title, content, project_id, parent_folder_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      note.id, note.title, note.content, note.project_id, note.parent_folder_id, note.created_at, note.updated_at,
     );
     return note;
   }
 
-  update(id: string, patch: { title?: string; content?: string; project_id?: string | null }): Note {
+  update(id: string, patch: { title?: string; content?: string; project_id?: string | null; parent_folder_id?: string | null }): Note {
     const existing = this.require(id);
     const next = { ...existing, ...stripUndefined(patch), updated_at: now() };
     this.db.run(
-      `UPDATE tal_notes SET title = ?, content = ?, project_id = ?, updated_at = ? WHERE id = ?`,
-      next.title, next.content, next.project_id, next.updated_at, id,
+      `UPDATE tal_notes SET title = ?, content = ?, project_id = ?, parent_folder_id = ?, updated_at = ? WHERE id = ?`,
+      next.title, next.content, next.project_id, next.parent_folder_id, next.updated_at, id,
     );
     return next;
   }

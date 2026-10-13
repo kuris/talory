@@ -1,39 +1,201 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import type { Note, Project } from "@talorys/shared";
-import { ArrowLeft, CircleCheck, Crosshair, Eye, FolderKanban, ListTodo, NotebookPen, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import type { Folder, Note, Project } from "@talorys/shared";
+import {
+  ArrowLeft,
+  ChevronRight,
+  CircleCheck,
+  Crosshair,
+  Eye,
+  FolderKanban,
+  FolderPlus,
+  ListTodo,
+  NotebookPen,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+} from "lucide-react";
 import { Markdown } from "../components/Markdown";
+import { buildIndex, type DragPayload, folderContents, folderPath, isSelfOrDescendant, NotesTree, useRootDropTarget } from "../components/NotesTree";
 import { WriterEditor, type WriterHandle, taskStats, toggleTaskLine } from "../components/WriterEditor";
 import { Badge, Button, ConfirmDialog, Dialog, EmptyState, ErrorNotice, Input, Select, Spinner } from "../components/ui";
-import { keys, useApiMutation, useNotes, useProjects } from "../hooks/queries";
+import { keys, useAllNotes, useApiMutation, useFolders, useNotes, useProjects } from "../hooks/queries";
+import { useToast } from "../hooks/toast";
 import { api } from "../lib/api";
 import { cn, relativeTime } from "../lib/utils";
+
+const EXPANDED_KEY = "talorys.notes.expanded";
+
+function loadExpanded(): Set<string> {
+  try {
+    const raw = localStorage.getItem(EXPANDED_KEY);
+    return raw ? new Set(JSON.parse(raw) as string[]) : new Set();
+  } catch {
+    return new Set();
+  }
+}
 
 export default function NotesPage() {
   const { noteId } = useParams();
   const navigate = useNavigate();
+  const toast = useToast();
   const [q, setQ] = useState("");
   const [debounced, setDebounced] = useState("");
   const [projectsOpen, setProjectsOpen] = useState(false);
+  const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(() => loadExpanded());
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [deletingFolder, setDeletingFolder] = useState<Folder | null>(null);
   useEffect(() => {
     const t = setTimeout(() => setDebounced(q.trim()), 200);
     return () => clearTimeout(t);
   }, [q]);
-  const { data: notes, isLoading, error, refetch } = useNotes(debounced || undefined);
+  const searching = !!debounced;
 
-  const create = useApiMutation(() => api<{ note: Note }>("/notes", { method: "POST", body: { title: "Untitled", content: "" } }), {
-    invalidate: [["notes"]],
-    onSuccess: (r) => navigate(`/notes/${r.note.id}?edit=1`),
+  const foldersQuery = useFolders();
+  const allNotesQuery = useAllNotes();
+  const searchQuery = useNotes(debounced || undefined, { enabled: searching });
+  const folders = foldersQuery.data ?? [];
+  const allNotes = allNotesQuery.data ?? [];
+  const { folderMap } = buildIndex(folders, allNotes);
+
+  const persistExpanded = useCallback((next: Set<string>) => {
+    setExpanded(next);
+    try {
+      localStorage.setItem(EXPANDED_KEY, JSON.stringify([...next]));
+    } catch {}
+  }, []);
+
+  const toggleExpand = useCallback(
+    (id: string) => {
+      const next = new Set(expanded);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      persistExpanded(next);
+    },
+    [expanded, persistExpanded],
+  );
+
+  // Reveal the path to the currently open note and focus it, so a deep link always shows its context.
+  useEffect(() => {
+    if (!noteId || allNotes.length === 0) return;
+    const note = allNotes.find((n) => n.id === noteId);
+    if (!note) return;
+    setActiveFolderId(note.parent_folder_id);
+    if (note.parent_folder_id) {
+      const ancestors = folderPath(folderMap, note.parent_folder_id);
+      if (ancestors.some((f) => !expanded.has(f.id))) {
+        const next = new Set(expanded);
+        for (const f of ancestors) next.add(f.id);
+        persistExpanded(next);
+      }
+    }
+    // Runs once per opened note; expanding further folders afterwards must not re-trigger it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [noteId, allNotes.length]);
+
+  const create = useApiMutation(
+    () => api<{ note: Note }>("/notes", { method: "POST", body: { title: "Untitled", content: "", parent_folder_id: activeFolderId } }),
+    { invalidate: [["notes"]], onSuccess: (r) => navigate(`/notes/${r.note.id}?edit=1`) },
+  );
+
+  const createFolder = useApiMutation(
+    (parentId: string | null) => api<{ folder: Folder }>("/folders", { method: "POST", body: { name: "New folder", parent_folder_id: parentId } }),
+    {
+      invalidate: [keys.folders],
+      onSuccess: (r, parentId) => {
+        if (parentId) {
+          const next = new Set(expanded);
+          next.add(parentId);
+          persistExpanded(next);
+        }
+        setActiveFolderId(parentId);
+        setRenamingId(r.folder.id);
+      },
+    },
+  );
+
+  const renameFolder = useApiMutation((v: { id: string; name: string }) => api(`/folders/${v.id}`, { method: "PATCH", body: { name: v.name } }), {
+    invalidate: [keys.folders],
   });
+
+  const deleteFolder = useApiMutation(
+    (id: string) => api<{ folders: number; notes: number }>(`/folders/${id}`, { method: "DELETE" }),
+    {
+      invalidate: [keys.folders, ["notes"]],
+      success: (r) => `Folder deleted${r.notes || r.folders ? ` (${[r.notes && `${r.notes} note${r.notes === 1 ? "" : "s"}`, r.folders && `${r.folders} subfolder${r.folders === 1 ? "" : "s"}`].filter(Boolean).join(", ")})` : ""}`,
+      onSuccess: (_r, id) => {
+        setDeletingFolder(null);
+        if (activeFolderId === id) setActiveFolderId(null);
+      },
+    },
+  );
+
+  const moveNote = useApiMutation(
+    (v: { id: string; parent_folder_id: string | null }) => api(`/notes/${v.id}`, { method: "PATCH", body: { parent_folder_id: v.parent_folder_id } }),
+    { invalidate: [["notes"]] },
+  );
+  const moveFolder = useApiMutation(
+    (v: { id: string; parent_folder_id: string | null }) => api(`/folders/${v.id}`, { method: "PATCH", body: { parent_folder_id: v.parent_folder_id } }),
+    { invalidate: [keys.folders] },
+  );
+
+  const moveItem = useCallback(
+    (dragged: DragPayload, targetFolderId: string | null) => {
+      if (dragged.kind === "note") {
+        const note = allNotes.find((n) => n.id === dragged.id);
+        if (note && note.parent_folder_id === targetFolderId) return;
+        moveNote.mutate({ id: dragged.id, parent_folder_id: targetFolderId });
+        return;
+      }
+      if (dragged.id === targetFolderId) return;
+      const folder = folders.find((f) => f.id === dragged.id);
+      if (folder && folder.parent_folder_id === targetFolderId) return;
+      if (targetFolderId && isSelfOrDescendant(folders, dragged.id, targetFolderId)) {
+        toast("Can't move a folder into itself or one of its own subfolders.", "error");
+        return;
+      }
+      moveFolder.mutate({ id: dragged.id, parent_folder_id: targetFolderId });
+    },
+    // moveNote/moveFolder are stable useApiMutation results that only change identity on re-render, not on data changes.
+    [allNotes, folders, toast], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  const rootDrop = useRootDropTarget((dragged) => moveItem(dragged, null));
+
+  const submitRename = (id: string, name: string) => {
+    setRenamingId(null);
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const folder = folders.find((f) => f.id === id);
+    if (folder && folder.name === trimmed) return;
+    renameFolder.mutate({ id, name: trimmed });
+  };
+
+  const breadcrumb = activeFolderId ? folderPath(folderMap, activeFolderId) : [];
+  const contents = deletingFolder ? folderContents(folders, allNotes, deletingFolder.id) : null;
+
+  const isLoading = searching ? searchQuery.isLoading : foldersQuery.isLoading || allNotesQuery.isLoading;
+  const error = searching ? searchQuery.error : foldersQuery.error ?? allNotesQuery.error;
+  const empty = searching ? !searchQuery.data?.length : folders.length === 0 && allNotes.length === 0;
 
   return (
     <div className="flex h-full min-h-[calc(100vh-3.5rem)] md:min-h-full">
       <aside className={cn("w-full shrink-0 flex-col border-r border-border md:flex md:w-80", noteId ? "hidden" : "flex")}>
         <div className="space-y-3 p-4">
-          <div className="flex items-center justify-between">
-            <h1 className="text-2xl font-semibold tracking-tight">Notes</h1>
+          <div
+            className={cn("-mx-2 flex items-center justify-between rounded-lg px-2 py-1 transition-colors", rootDrop.dragOver && "bg-accent-soft ring-1 ring-accent/40")}
+            {...rootDrop.handlers}
+          >
+            <button type="button" onClick={() => setActiveFolderId(null)} className="text-2xl font-semibold tracking-tight">
+              Notes
+            </button>
             <div className="flex gap-1">
+              <Button variant="ghost" size="icon" onClick={() => createFolder.mutate(activeFolderId)} loading={createFolder.isPending} aria-label="New folder" title="New folder">
+                <FolderPlus className="h-4 w-4" />
+              </Button>
               <Button variant="ghost" size="icon" onClick={() => setProjectsOpen(true)} aria-label="Manage projects">
                 <FolderKanban className="h-4 w-4" />
               </Button>
@@ -42,6 +204,21 @@ export default function NotesPage() {
               </Button>
             </div>
           </div>
+          {!searching && breadcrumb.length > 0 && (
+            <div className="flex items-center gap-1 overflow-x-auto text-xs text-fg-subtle">
+              <button type="button" onClick={() => setActiveFolderId(null)} className="shrink-0 rounded px-1 hover:bg-muted hover:text-fg">
+                Notes
+              </button>
+              {breadcrumb.map((f) => (
+                <span key={f.id} className="flex shrink-0 items-center gap-1">
+                  <ChevronRight className="h-3 w-3" />
+                  <button type="button" onClick={() => setActiveFolderId(f.id)} className={cn("rounded px-1 hover:bg-muted hover:text-fg", f.id === activeFolderId && "font-medium text-fg")}>
+                    {f.name}
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle" />
             <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search notes" className="h-9 pl-9 text-sm" aria-label="Search notes" />
@@ -50,54 +227,81 @@ export default function NotesPage() {
         <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-2 pb-4">
           {error ? (
             <div className="p-2">
-              <ErrorNotice error={error} onRetry={() => void refetch()} />
+              <ErrorNotice
+                error={error}
+                onRetry={() => {
+                  if (searching) void searchQuery.refetch();
+                  else {
+                    void foldersQuery.refetch();
+                    void allNotesQuery.refetch();
+                  }
+                }}
+              />
             </div>
           ) : isLoading ? (
             <div className="flex justify-center py-10">
               <Spinner />
             </div>
-          ) : !notes?.length ? (
-            <EmptyState icon={<NotebookPen className="h-8 w-8" />} title={debounced ? "No matches" : "No notes yet"}>
-              {debounced ? "Try another search." : "Capture ideas, plans and reference material. Markdown supported."}
+          ) : empty ? (
+            <EmptyState icon={<NotebookPen className="h-8 w-8" />} title={searching ? "No matches" : "No notes yet"}>
+              {searching ? "Try another search." : "Create a note or a folder to get started. Markdown supported."}
             </EmptyState>
-          ) : (
+          ) : searching ? (
             <ul className="space-y-0.5">
-              {notes.map((n) => {
+              {searchQuery.data?.map((n) => {
                 const tasks = taskStats(n.content);
+                const path = n.parent_folder_id ? folderPath(folderMap, n.parent_folder_id) : [];
                 return (
-                <li key={n.id}>
-                  <button type="button"
-                    onClick={() => navigate(`/notes/${n.id}`)}
-                    className={cn(
-                      "w-full rounded-lg px-3 py-2.5 text-left transition-colors",
-                      n.id === noteId ? "bg-muted" : "hover:bg-muted/60",
-                    )}
-                  >
-                    <div className="flex items-center gap-2">
-                      <p className="min-w-0 flex-1 truncate text-sm font-medium">{n.title}</p>
-                      {tasks.total > 0 && (
-                        <span className={cn("flex shrink-0 items-center gap-1 text-[11px] tabular-nums", tasks.done === tasks.total ? "text-success" : "text-fg-subtle")}>
-                          <CircleCheck className="h-3 w-3" />
-                          {tasks.done}/{tasks.total}
-                        </span>
-                      )}
-                    </div>
-                    <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-fg-subtle">
-                      {relativeTime(n.updated_at)}
-                      {n.content ? ` · ${n.content.replace(/[#*_`>\-[\]]/g, "").slice(0, 120)}` : ""}
-                    </p>
-                  </button>
-                </li>
+                  <li key={n.id}>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/notes/${n.id}`)}
+                      className={cn("w-full rounded-lg px-3 py-2.5 text-left transition-colors", n.id === noteId ? "bg-muted" : "hover:bg-muted/60")}
+                    >
+                      <div className="flex items-center gap-2">
+                        <p className="min-w-0 flex-1 truncate text-sm font-medium">{n.title}</p>
+                        {tasks.total > 0 && (
+                          <span className={cn("flex shrink-0 items-center gap-1 text-[11px] tabular-nums", tasks.done === tasks.total ? "text-success" : "text-fg-subtle")}>
+                            <CircleCheck className="h-3 w-3" />
+                            {tasks.done}/{tasks.total}
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-fg-subtle">
+                        {path.length > 0 ? `${path.map((f) => f.name).join(" / ")} · ` : ""}
+                        {relativeTime(n.updated_at)}
+                        {n.content ? ` · ${n.content.replace(/[#*_`>\-[\]]/g, "").slice(0, 120)}` : ""}
+                      </p>
+                    </button>
+                  </li>
                 );
               })}
             </ul>
+          ) : (
+            <NotesTree
+              folders={folders}
+              notes={allNotes}
+              selectedNoteId={noteId}
+              activeFolderId={activeFolderId}
+              expanded={expanded}
+              renamingId={renamingId}
+              onToggleExpand={toggleExpand}
+              onSelectFolder={setActiveFolderId}
+              onOpenNote={(id) => navigate(`/notes/${id}`)}
+              onStartRename={setRenamingId}
+              onSubmitRename={submitRename}
+              onCancelRename={() => setRenamingId(null)}
+              onDeleteFolder={setDeletingFolder}
+              onNewFolder={(parentId) => createFolder.mutate(parentId)}
+              onMove={moveItem}
+            />
           )}
         </div>
       </aside>
 
       <section className={cn("min-w-0 flex-1", !noteId && "hidden md:block")}>
         {noteId ? (
-          <NoteEditor key={noteId} id={noteId} onBack={() => navigate("/notes")} />
+          <NoteEditor key={noteId} id={noteId} folderMap={folderMap} onBack={() => navigate("/notes")} />
         ) : (
           <EmptyState icon={<NotebookPen className="h-9 w-9" />} title="Select a note">
             Or create a new one with the + button.
@@ -105,11 +309,37 @@ export default function NotesPage() {
         )}
       </section>
       <ProjectsDialog open={projectsOpen} onClose={() => setProjectsOpen(false)} />
+      <ConfirmDialog
+        open={!!deletingFolder}
+        title="Delete folder?"
+        message={
+          deletingFolder && (
+            <>
+              “{deletingFolder.name}” will be permanently deleted.
+              {contents && (contents.folders > 0 || contents.notes > 0) && (
+                <>
+                  {" "}
+                  This also deletes {contents.notes > 0 && `${contents.notes} note${contents.notes === 1 ? "" : "s"}`}
+                  {contents.notes > 0 && contents.folders > 0 && " and "}
+                  {contents.folders > 0 && `${contents.folders} subfolder${contents.folders === 1 ? "" : "s"}`} inside it.
+                </>
+              )}
+            </>
+          )
+        }
+        onCancel={() => setDeletingFolder(null)}
+        onConfirm={() => {
+          if (!deletingFolder) return;
+          if (deletingFolder.id === activeFolderId) setActiveFolderId(null);
+          deleteFolder.mutate(deletingFolder.id);
+        }}
+        loading={deleteFolder.isPending}
+      />
     </div>
   );
 }
 
-function NoteEditor({ id, onBack }: { id: string; onBack: () => void }) {
+function NoteEditor({ id, folderMap, onBack }: { id: string; folderMap: Map<string, Folder>; onBack: () => void }) {
   const projects = useProjects();
   const [note, setNote] = useState<Note | null>(null);
   const [loadError, setLoadError] = useState<unknown>(null);
@@ -218,6 +448,8 @@ function NoteEditor({ id, onBack }: { id: string; onBack: () => void }) {
   if (loadError) return <div className="p-6"><ErrorNotice error={loadError} /></div>;
   if (!note) return <div className="flex justify-center py-16"><Spinner /></div>;
 
+  const path = note.parent_folder_id ? folderPath(folderMap, note.parent_folder_id) : [];
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border px-3">
@@ -264,6 +496,17 @@ function NoteEditor({ id, onBack }: { id: string; onBack: () => void }) {
       </div>
       <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-[44rem] px-5 py-8 md:px-8 md:py-14">
+          {path.length > 0 && (
+            <div className="mb-2 flex items-center gap-1 overflow-x-auto text-xs text-fg-subtle">
+              <span>Notes</span>
+              {path.map((f) => (
+                <span key={f.id} className="flex shrink-0 items-center gap-1">
+                  <ChevronRight className="h-3 w-3" />
+                  {f.name}
+                </span>
+              ))}
+            </div>
+          )}
           <input
             ref={titleRef}
             value={title}

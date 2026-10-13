@@ -3,6 +3,7 @@ import type {
   AutomationRun,
   Conversation,
   ChatMessage,
+  Folder,
   Memory,
   MemoryHistory,
   MemoryReview,
@@ -27,6 +28,8 @@ export const keys = {
   memoryReviews: ["memories", "reviews"] as const,
   memoryHistory: (id: string) => ["memories", "history", id] as const,
   notes: (q?: string) => ["notes", q ?? ""] as const,
+  allNotes: ["notes", "all"] as const,
+  folders: ["folders"] as const,
   projects: ["projects"] as const,
   automations: ["automations"] as const,
   notifications: ["notifications"] as const,
@@ -104,10 +107,28 @@ export function useMemoryHistory(id: string | null) {
   });
 }
 
-export function useNotes(q?: string) {
+export function useNotes(q?: string, opts: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: keys.notes(q),
     queryFn: () => api<{ notes: Note[] }>(`/notes${q ? `?q=${encodeURIComponent(q)}` : ""}`).then((r) => r.notes),
+    placeholderData: (prev) => prev,
+    enabled: opts.enabled ?? true,
+  });
+}
+
+/** Every note, unfiltered — used to build the folder tree in the sidebar. */
+export function useAllNotes() {
+  return useQuery({
+    queryKey: keys.allNotes,
+    queryFn: () => api<{ notes: Note[] }>("/notes?all=1").then((r) => r.notes),
+    placeholderData: (prev) => prev,
+  });
+}
+
+export function useFolders() {
+  return useQuery({
+    queryKey: keys.folders,
+    queryFn: () => api<{ folders: Folder[] }>("/folders").then((r) => r.folders),
     placeholderData: (prev) => prev,
   });
 }

@@ -217,6 +217,24 @@ export const MIGRATIONS: Migration[] = [
       `CREATE INDEX IF NOT EXISTS tal_memory_reviews_other ON tal_memory_reviews(other_id)`,
     ],
   },
+  {
+    version: 5,
+    name: "note folders",
+    statements: [
+      // Folders can nest inside other folders without limit; a null parent means root level.
+      `CREATE TABLE IF NOT EXISTS tal_folders (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        parent_folder_id TEXT REFERENCES tal_folders(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS tal_folders_parent ON tal_folders(parent_folder_id)`,
+      // Existing notes get NULL here, i.e. they stay at root level after this migration.
+      `ALTER TABLE tal_notes ADD COLUMN parent_folder_id TEXT REFERENCES tal_folders(id) ON DELETE SET NULL`,
+      `CREATE INDEX IF NOT EXISTS tal_notes_parent_folder ON tal_notes(parent_folder_id)`,
+    ],
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;

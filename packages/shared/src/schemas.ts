@@ -81,6 +81,18 @@ export interface Note {
   title: string;
   content: string;
   project_id: string | null;
+  /** The folder this note lives in, or null for the root level. */
+  parent_folder_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A folder in the Notes section. Folders can nest inside other folders without limit. */
+export interface Folder {
+  id: string;
+  name: string;
+  /** The folder this folder lives in, or null for the root level. */
+  parent_folder_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -255,10 +267,17 @@ export const noteCreateSchema = z.object({
   title: shortText(300),
   content: z.string().max(200_000).optional().default(""),
   project_id: id.nullable().optional(),
+  parent_folder_id: id.nullable().optional(),
 });
 export const noteUpdateSchema = z
-  .object({ title: shortText(300), content: z.string().max(200_000), project_id: id.nullable() })
+  .object({ title: shortText(300), content: z.string().max(200_000), project_id: id.nullable(), parent_folder_id: id.nullable() })
   .partial();
+
+export const folderCreateSchema = z.object({
+  name: shortText(200),
+  parent_folder_id: id.nullable().optional(),
+});
+export const folderUpdateSchema = z.object({ name: shortText(200), parent_folder_id: id.nullable() }).partial();
 
 export const projectCreateSchema = z.object({
   name: shortText(200),
@@ -362,6 +381,7 @@ export const backupSchema = z.object({
     memories: z.array(backupEntity({ id, content: z.string(), category: z.string(), created_at: z.string(), updated_at: z.string() })).default([]),
     tasks: z.array(backupEntity({ id, title: z.string(), status: z.string(), created_at: z.string(), updated_at: z.string() })).default([]),
     notes: z.array(backupEntity({ id, title: z.string(), content: z.string(), created_at: z.string(), updated_at: z.string() })).default([]),
+    folders: z.array(backupEntity({ id, name: z.string(), created_at: z.string(), updated_at: z.string() })).default([]),
     projects: z.array(backupEntity({ id, name: z.string(), created_at: z.string(), updated_at: z.string() })).default([]),
     automations: z.array(backupEntity({ id, name: z.string(), kind: z.string(), schedule: z.unknown() })).default([]),
   }),

@@ -292,10 +292,14 @@ describe("migration from the previous schema", () => {
     const run = freshAgent();
     await run((agent, state) => {
       const db = new Database(state.storage);
-      // Rebuild the exact v3 shape: remove everything migration 4 added.
-      for (const idx of ["tal_memories_status", "tal_memories_superseded_by"]) db.run(`DROP INDEX IF EXISTS ${idx}`);
+      // Rebuild the exact v3 shape: remove everything migrations 4 and 5 added.
+      for (const idx of ["tal_memories_status", "tal_memories_superseded_by", "tal_folders_parent", "tal_notes_parent_folder"]) {
+        db.run(`DROP INDEX IF EXISTS ${idx}`);
+      }
       db.run(`DROP TABLE IF EXISTS tal_memory_reviews`);
+      db.run(`DROP TABLE IF EXISTS tal_folders`);
       for (const col of ["status", "superseded_by", "valid_from", "valid_until"]) db.run(`ALTER TABLE tal_memories DROP COLUMN ${col}`);
+      db.run(`ALTER TABLE tal_notes DROP COLUMN parent_folder_id`);
       db.run(`UPDATE tal_schema SET version = 3`);
       db.run(
         `INSERT INTO tal_memories (id, content, category, source, created_at, updated_at) VALUES ('legacy-1', 'Legacy memory about sailing', 'fact', 'manual', '2025-01-01T00:00:00.000Z', '2025-01-01T00:00:00.000Z')`,

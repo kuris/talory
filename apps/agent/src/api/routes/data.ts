@@ -1,4 +1,6 @@
 import {
+  folderCreateSchema,
+  folderUpdateSchema,
   memoryCorrectSchema,
   memoryCreateSchema,
   memoryListQuerySchema,
@@ -26,6 +28,10 @@ export const dataRoutes = new Hono<AppEnv>();
 
 function assertProject(c: { env: AppEnv["Bindings"] }, projectId: string | null | undefined) {
   if (projectId && !c.env.agent.services.projects.get(projectId)) throw new ValidationError("Project does not exist.");
+}
+
+function assertFolder(c: { env: AppEnv["Bindings"] }, folderId: string | null | undefined) {
+  if (folderId && !c.env.agent.services.folders.get(folderId)) throw new ValidationError("Folder does not exist.");
 }
 
 // ---------- Tasks ----------
@@ -126,13 +132,16 @@ dataRoutes.post("/memories/:id/correct", async (c) => {
 // ---------- Notes ----------
 
 dataRoutes.get("/notes", (c) => {
-  const q = query(c, z.object({ q: z.string().max(200).optional(), project_id: z.string().max(64).optional() }));
+  const q = query(c, z.object({ q: z.string().max(200).optional(), project_id: z.string().max(64).optional(), all: z.string().optional() }));
+  // The folder tree needs every note at once; a search or a project filter still uses the capped/ranked list.
+  if (q.all !== undefined && !q.q && !q.project_id) return c.json({ notes: c.env.agent.services.notes.listAll() });
   return c.json({ notes: c.env.agent.services.notes.list(q) });
 });
 
 dataRoutes.post("/notes", async (c) => {
   const input = await body(c, noteCreateSchema, 512 * 1024);
   assertProject(c, input.project_id);
+  assertFolder(c, input.parent_folder_id);
   return c.json({ note: c.env.agent.services.notes.create(input) }, 201);
 });
 
@@ -141,12 +150,44 @@ dataRoutes.get("/notes/:id", (c) => c.json({ note: c.env.agent.services.notes.re
 dataRoutes.patch("/notes/:id", async (c) => {
   const patch = await body(c, noteUpdateSchema, 512 * 1024);
   assertProject(c, patch.project_id);
+  assertFolder(c, patch.parent_folder_id);
   return c.json({ note: c.env.agent.services.notes.update(c.req.param("id"), patch) });
 });
 
 dataRoutes.delete("/notes/:id", (c) => {
   c.env.agent.services.notes.delete(c.req.param("id"));
   return c.json({ deleted: true });
+});
+
+// ---------- Folders ----------
+// Folders organize notes into an infinitely nestable tree; a null parent_folder_id means root level.
+
+dataRoutes.get("/folders", (c) => c.json({ folders: c.env.agent.services.folders.list() }));
+
+dataRoutes.post("/folders", async (c) => {
+  const input = await body(c, folderCreateSchema);
+  assertFolder(c, input.parent_folder_id);
+  return c.json({ folder: c.env.agent.services.folders.create(input) }, 201);
+});
+
+dataRoutes.get("/folders/:id/contents", (c) => c.json(c.env.agent.services.folders.contents(c.req.param("id"))));
+
+dataRoutes.patch("/folders/:id", async (c) => {
+  const id = c.req.param("id");
+  const patch = await body(c, folderUpdateSchema);
+  const s = c.env.agent.services;
+  if (patch.parent_folder_id) {
+    assertFolder(c, patch.parent_folder_id);
+    if (s.folders.isSelfOrAncestor(id, patch.parent_folder_id)) {
+      throw new ValidationError("A folder can't be moved inside itself or one of its own subfolders.");
+    }
+  }
+  return c.json({ folder: s.folders.update(id, patch) });
+});
+
+dataRoutes.delete("/folders/:id", (c) => {
+  const result = c.env.agent.services.folders.delete(c.req.param("id"));
+  return c.json({ deleted: true, ...result });
 });
 
 // ---------- Projects ----------
