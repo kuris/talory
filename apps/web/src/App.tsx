@@ -11,6 +11,7 @@ const MemoryPage = lazy(() => import("./pages/MemoryPage"));
 const TasksPage = lazy(() => import("./pages/TasksPage"));
 const NotesPage = lazy(() => import("./pages/NotesPage"));
 const MindmapPage = lazy(() => import("./pages/MindmapPage"));
+const CalendarPage = lazy(() => import("./pages/CalendarPage"));
 const AutomationsPage = lazy(() => import("./pages/AutomationsPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 
@@ -51,6 +52,7 @@ export function App() {
         <Route path="notes/:noteId?" element={<Lazy><NotesPage /></Lazy>} />
         <Route path="mindmap" element={<Lazy><MindmapPage /></Lazy>} />
         <Route path="mindmap/:mapId" element={<Lazy><MindmapPage /></Lazy>} />
+        <Route path="calendar" element={<Lazy><CalendarPage /></Lazy>} />
         <Route path="automations" element={<Lazy><AutomationsPage /></Lazy>} />
         <Route path="settings" element={<Lazy><SettingsPage /></Lazy>} />
         <Route path="*" element={<Navigate to="/chat" replace />} />

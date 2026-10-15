@@ -260,6 +260,21 @@ export const MIGRATIONS: Migration[] = [
       `CREATE INDEX IF NOT EXISTS tal_mindmap_nodes_parent ON tal_mindmap_nodes(parent_id)`,
     ],
   },
+  {
+    version: 7,
+    name: "calendar events",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS tal_calendar_events (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        date TEXT NOT NULL,
+        notes TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS tal_calendar_events_date ON tal_calendar_events(date)`,
+    ],
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;

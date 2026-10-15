@@ -39,6 +39,7 @@ export function exportData(s: Services): Backup {
       folders: db.all(`SELECT * FROM tal_folders ORDER BY created_at`),
       mindmaps: db.all(`SELECT * FROM tal_mindmaps ORDER BY created_at`),
       mindmap_nodes: db.all(`SELECT * FROM tal_mindmap_nodes ORDER BY created_at`),
+      calendar_events: db.all(`SELECT * FROM tal_calendar_events ORDER BY created_at`),
       projects: db.all(`SELECT * FROM tal_projects ORDER BY created_at`),
       automations: db
         .all<Record<string, unknown>>(`SELECT id, name, kind, message, schedule, enabled, created_at, updated_at FROM tal_automations`)
@@ -55,6 +56,7 @@ export interface ImportSummary {
   notes: number;
   folders: number;
   mindmaps: number;
+  calendar_events: number;
   projects: number;
   automations: number;
   /** Imported automations always arrive paused; the owner enables them. */
@@ -199,6 +201,13 @@ export async function importData(s: Services, raw: unknown): Promise<ImportSumma
       if (s.mindmaps.wouldCycle(n.id, parentId)) continue;
       db.run(`UPDATE tal_mindmap_nodes SET parent_id = ? WHERE id = ?`, parentId, n.id);
     }
+    for (const e of d.calendar_events) {
+      db.run(
+        `INSERT INTO tal_calendar_events (id, title, date, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET title = excluded.title, date = excluded.date, notes = excluded.notes, updated_at = excluded.updated_at`,
+        e.id, e.title, e.date, str(e.notes), e.created_at, e.updated_at,
+      );
+    }
     let automations = 0;
     for (const a of d.automations) {
       const schedule = scheduleSpecSchema.safeParse(a.schedule);
@@ -234,6 +243,7 @@ export async function importData(s: Services, raw: unknown): Promise<ImportSumma
       notes: d.notes.length,
       folders: d.folders.length,
       mindmaps: d.mindmaps.length,
+      calendar_events: d.calendar_events.length,
       projects: d.projects.length,
       automations,
       automations_paused: automations,

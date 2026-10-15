@@ -1,6 +1,7 @@
 import type {
   Automation,
   AutomationRun,
+  CalendarEvent,
   Conversation,
   ChatMessage,
   Folder,
@@ -34,6 +35,8 @@ export const keys = {
   folders: ["folders"] as const,
   mindmaps: ["mindmaps"] as const,
   mindmap: (id: string) => ["mindmaps", id] as const,
+  calendar: (start: string, end: string) => ["calendar", start, end] as const,
+  calendarAll: ["calendar"] as const,
   projects: ["projects"] as const,
   automations: ["automations"] as const,
   notifications: ["notifications"] as const,
@@ -150,6 +153,14 @@ export function useMindmap(id: string | undefined) {
     queryKey: keys.mindmap(id ?? ""),
     queryFn: () => api<{ mindmap: Mindmap; nodes: MindmapNode[] }>(`/mindmaps/${id}`),
     enabled: !!id,
+  });
+}
+
+export function useCalendar(start: string, end: string) {
+  return useQuery({
+    queryKey: keys.calendar(start, end),
+    queryFn: () => api<{ events: CalendarEvent[]; tasks: Task[] }>(`/calendar?start=${start}&end=${end}`),
+    placeholderData: (prev) => prev,
   });
 }
 

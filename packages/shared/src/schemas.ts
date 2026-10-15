@@ -6,6 +6,7 @@ import { isValidTimeZone, scheduleSpecSchema } from "./recurrence";
 
 const id = z.string().min(1).max(64);
 const isoDate = z.string().datetime({ offset: true });
+const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD");
 const shortText = (max: number) => z.string().trim().min(1).max(max);
 
 // ---------- Entities ----------
@@ -116,6 +117,17 @@ export interface MindmapNode {
   x: number;
   y: number;
   order_index: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A manually-added entry on the calendar, keyed to a local calendar day (not a UTC instant). */
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  /** "YYYY-MM-DD", the owner's local calendar day. */
+  date: string;
+  notes: string;
   created_at: string;
   updated_at: string;
 }
@@ -314,6 +326,9 @@ export const mindmapNodeCreateSchema = z.object({
 });
 export const mindmapNodeUpdateSchema = z.object({ text: shortText(500), x: mindmapCoord, y: mindmapCoord, parent_id: id }).partial();
 
+export const calendarEventCreateSchema = z.object({ title: shortText(200), date: dateOnly, notes: z.string().max(2000).optional().default("") });
+export const calendarEventUpdateSchema = z.object({ title: shortText(200), date: dateOnly, notes: z.string().max(2000) }).partial();
+
 export const projectCreateSchema = z.object({
   name: shortText(200),
   description: z.string().max(5000).optional().default(""),
@@ -421,6 +436,7 @@ export const backupSchema = z.object({
     mindmap_nodes: z
       .array(backupEntity({ id, mindmap_id: id, text: z.string(), x: z.number(), y: z.number(), order_index: z.number(), created_at: z.string(), updated_at: z.string() }))
       .default([]),
+    calendar_events: z.array(backupEntity({ id, title: z.string(), date: z.string(), notes: z.string(), created_at: z.string(), updated_at: z.string() })).default([]),
     projects: z.array(backupEntity({ id, name: z.string(), created_at: z.string(), updated_at: z.string() })).default([]),
     automations: z.array(backupEntity({ id, name: z.string(), kind: z.string(), schedule: z.unknown() })).default([]),
   }),

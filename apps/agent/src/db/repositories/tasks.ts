@@ -78,6 +78,11 @@ export class TaskRepository {
     return this.db.one<Task>(`SELECT * FROM tal_tasks WHERE id = ?`, id);
   }
 
+  /** Tasks due within [start, end), UTC ISO instants — for overlaying due dates on the calendar. */
+  dueInRange(start: string, end: string): Task[] {
+    return this.db.all<Task>(`SELECT * FROM tal_tasks WHERE due_at >= ? AND due_at < ? ORDER BY due_at`, start, end);
+  }
+
   require(id: string): Task {
     const task = this.get(id);
     if (!task) throw new NotFoundError("Task not found");

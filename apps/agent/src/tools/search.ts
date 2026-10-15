@@ -5,7 +5,7 @@ import { presentTask } from "./tasks";
 export const searchTools = [
   defineTool({
     name: "search",
-    description: "Search across the owner's tasks, notes, mind maps, memories and past conversations at once.",
+    description: "Search across the owner's tasks, notes, mind maps, calendar events, memories and past conversations at once.",
     permission: "read",
     maxCallsPerTurn: 2,
     input: z.object({ query: z.string().min(1).max(200) }),
@@ -16,6 +16,7 @@ export const searchTools = [
         tasks: s.tasks.list({ q: i.query, limit: 5 }).map((t) => presentTask(t, ctx.timezone)),
         notes: s.notes.search(i.query, 5).map((n) => ({ id: n.id, title: n.title, excerpt: n.content.slice(0, 200) })),
         mindmaps: s.mindmaps.search(i.query, 5).map((m) => ({ id: m.id, title: m.title })),
+        calendar_events: s.calendar.search(i.query, 5).map((e) => ({ id: e.id, title: e.title, date: e.date })),
         memories: s.memories.search(i.query, 5).map((m) => ({ id: m.id, content: m.content, ...(m.status !== "active" ? { status: m.status } : {}) })),
         conversations: s.conversations.list({ q: i.query, limit: 5 }).map((c) => ({ id: c.id, title: c.title })),
       };

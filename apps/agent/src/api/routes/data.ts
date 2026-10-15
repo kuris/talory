@@ -1,4 +1,6 @@
 import {
+  calendarEventCreateSchema,
+  calendarEventUpdateSchema,
   folderCreateSchema,
   folderUpdateSchema,
   memoryCorrectSchema,
@@ -25,7 +27,7 @@ import { z } from "zod";
 import type { AppEnv } from "../app";
 import { body, query } from "../middleware";
 import { ValidationError } from "../errors";
-import { localDayBounds } from "../../services/time";
+import { localDateRangeBounds, localDayBounds } from "../../services/time";
 
 /** Tasks, memories, notes and projects. None of these routes need AI. */
 export const dataRoutes = new Hono<AppEnv>();
@@ -251,5 +253,36 @@ dataRoutes.patch("/mindmaps/:id/nodes/:nodeId", async (c) => {
 
 dataRoutes.delete("/mindmaps/:id/nodes/:nodeId", (c) => {
   c.env.agent.services.mindmaps.deleteNode(c.req.param("id"), c.req.param("nodeId"));
+  return c.json({ deleted: true });
+});
+
+// ---------- Calendar ----------
+// Tasks with a due date appear on the calendar automatically; calendar events are separate,
+// manually-added entries keyed to a local calendar day rather than a UTC instant.
+
+const dateOnlyQuery = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+dataRoutes.get("/calendar", (c) => {
+  const q = query(c, z.object({ start: dateOnlyQuery, end: dateOnlyQuery }));
+  const s = c.env.agent.services;
+  const bounds = localDateRangeBounds(q.start, q.end, s.settings.get().timezone);
+  return c.json({
+    events: s.calendar.listRange(q.start, q.end),
+    tasks: s.tasks.dueInRange(bounds.start, bounds.end),
+  });
+});
+
+dataRoutes.post("/calendar-events", async (c) => {
+  const input = await body(c, calendarEventCreateSchema);
+  return c.json({ event: c.env.agent.services.calendar.create(input) }, 201);
+});
+
+dataRoutes.patch("/calendar-events/:id", async (c) => {
+  const patch = await body(c, calendarEventUpdateSchema);
+  return c.json({ event: c.env.agent.services.calendar.update(c.req.param("id"), patch) });
+});
+
+dataRoutes.delete("/calendar-events/:id", (c) => {
+  c.env.agent.services.calendar.delete(c.req.param("id"));
   return c.json({ deleted: true });
 });

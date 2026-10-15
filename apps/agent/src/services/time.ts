@@ -41,6 +41,16 @@ export function localDayBounds(timeZone: string, at = new Date()): { start: stri
   return { start: start.toISOString(), end: end.toISOString() };
 }
 
+/** UTC boundaries spanning local calendar days `startDate` through `endDate` (both "YYYY-MM-DD"), inclusive. */
+export function localDateRangeBounds(startDate: string, endDate: string, timeZone: string): { start: string; end: string } {
+  const [sy, sm, sd] = startDate.split("-").map(Number) as [number, number, number];
+  const [ey, em, ed] = endDate.split("-").map(Number) as [number, number, number];
+  const start = zonedTimeToUtc(sy, sm, sd, 0, 0, timeZone);
+  const next = new Date(Date.UTC(ey, em - 1, ed + 1));
+  const end = zonedTimeToUtc(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate(), 0, 0, timeZone);
+  return { start: start.toISOString(), end: end.toISOString() };
+}
+
 export function formatLocal(iso: string | null, timeZone: string): string | null {
   if (!iso) return null;
   return new Intl.DateTimeFormat("en-US", {

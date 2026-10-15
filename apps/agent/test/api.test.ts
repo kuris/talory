@@ -135,6 +135,35 @@ describe("notes and projects", () => {
     expect((await c.call(`/api/mindmaps/${mindmap.id}`)).status).toBe(404);
   });
 
+  it("surfaces tasks with a due date on the calendar alongside manually-added events", async () => {
+    const c = await loggedIn();
+    const { task } = await c.json("/api/tasks", { method: "POST", body: { title: "File taxes", due_at: "2026-04-15T12:00:00.000Z" } });
+    await c.json("/api/tasks", { method: "POST", body: { title: "Undated task" } }); // never appears on the calendar
+
+    const { event } = await c.json("/api/calendar-events", { method: "POST", body: { title: "Dentist", date: "2026-04-15", notes: "Bring insurance card" } });
+    expect(event).toMatchObject({ title: "Dentist", date: "2026-04-15", notes: "Bring insurance card" });
+
+    // A range covering just that day picks up both the task and the event.
+    const inRange = await c.json("/api/calendar?start=2026-04-15&end=2026-04-15");
+    expect(inRange.events.map((e: any) => e.id)).toEqual([event.id]);
+    expect(inRange.tasks.map((t: any) => t.id)).toEqual([task.id]);
+
+    // A range that excludes the day finds neither.
+    const outOfRange = await c.json("/api/calendar?start=2026-04-16&end=2026-04-20");
+    expect(outOfRange.events).toHaveLength(0);
+    expect(outOfRange.tasks).toHaveLength(0);
+
+    // Invalid calendar dates (like malformed input) are rejected.
+    expect((await c.call("/api/calendar-events", { method: "POST", body: { title: "x", date: "not-a-date" } })).status).toBe(400);
+
+    await c.json(`/api/calendar-events/${event.id}`, { method: "PATCH", body: { title: "Dentist (rescheduled)", date: "2026-04-16" } });
+    const moved = await c.json("/api/calendar?start=2026-04-16&end=2026-04-16");
+    expect(moved.events.map((e: any) => e.title)).toEqual(["Dentist (rescheduled)"]);
+
+    await c.call(`/api/calendar-events/${event.id}`, { method: "DELETE" });
+    expect((await c.json("/api/calendar?start=2026-04-16&end=2026-04-16")).events).toHaveLength(0);
+  });
+
   it("partial updates leave omitted fields unchanged", async () => {
     const c = await loggedIn();
     const { project } = await c.json("/api/projects", { method: "POST", body: { name: "Kitchen", description: "Renovation plan", status: "paused" } });
