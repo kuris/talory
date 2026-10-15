@@ -4,6 +4,7 @@ import { TaskRepository } from "../db/repositories/tasks";
 import { MemoryRepository } from "../db/repositories/memories";
 import { NoteRepository, ProjectRepository } from "../db/repositories/notes";
 import { FolderRepository } from "../db/repositories/folders";
+import { MindmapRepository } from "../db/repositories/mindmaps";
 import { ConversationRepository } from "../db/repositories/conversations";
 import { AutomationRepository, NotificationRepository } from "../db/repositories/automations";
 import { PendingActionRepository } from "../db/repositories/pending-actions";
@@ -20,6 +21,7 @@ export interface Services {
   memories: MemoryRepository;
   notes: NoteRepository;
   folders: FolderRepository;
+  mindmaps: MindmapRepository;
   projects: ProjectRepository;
   conversations: ConversationRepository;
   automationsRepo: AutomationRepository;
@@ -50,6 +52,7 @@ export function createServices(storage: DurableObjectStorage, env: Env, schedule
     memories,
     notes: new NoteRepository(db),
     folders: new FolderRepository(db),
+    mindmaps: new MindmapRepository(db),
     projects: new ProjectRepository(db),
     conversations: new ConversationRepository(db),
     automationsRepo,

@@ -87,9 +87,10 @@ describe("semantic tools", () => {
       const result = (await tool(semanticTools(sem), "search").execute({ query: "kayak" }, toolCtx)) as Record<string, unknown> & {
         memories: { id: string; content: string; saved: string }[];
       };
-      expect(Object.keys(result).sort()).toEqual(["conversations", "memories", "notes", "tasks"]);
+      expect(Object.keys(result).sort()).toEqual(["conversations", "memories", "mindmaps", "notes", "tasks"]);
       expect(result.tasks).toEqual(upstream.tasks);
       expect(result.notes).toEqual(upstream.notes);
+      expect(result.mindmaps).toEqual(upstream.mindmaps);
       expect(result.conversations).toEqual(upstream.conversations);
       expect(result.memories).toHaveLength(5);
       for (const m of result.memories) {

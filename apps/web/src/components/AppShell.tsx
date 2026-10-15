@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router";
-import { Bell, Brain, CalendarClock, CheckSquare, LogOut, MessageSquare, NotebookPen, Settings } from "lucide-react";
+import { Bell, Brain, CalendarClock, CheckSquare, LogOut, MessageSquare, Network, NotebookPen, Settings } from "lucide-react";
 import { Logo } from "./Logo";
 import { NotificationCenter } from "./NotificationCenter";
 import { useSession } from "../hooks/session";
@@ -12,6 +12,7 @@ const NAV = [
   { to: "/memory", label: "Memory", icon: Brain },
   { to: "/tasks", label: "Tasks", icon: CheckSquare },
   { to: "/notes", label: "Notes", icon: NotebookPen },
+  { to: "/mindmap", label: "Mind Map", icon: Network },
   { to: "/automations", label: "Automations", icon: CalendarClock },
 ] as const;
 
@@ -113,7 +114,7 @@ export function AppShell() {
         {/* Mobile bottom navigation */}
         <nav
           aria-label="Main"
-          className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-border bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
+          className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-6 border-t border-border bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
         >
           {NAV.map(({ to, label, icon: Icon }) => (
             <NavLink
@@ -124,7 +125,7 @@ export function AppShell() {
               }
             >
               <Icon className="h-5 w-5" />
-              {label === "Automations" ? "Schedules" : label}
+              {label === "Automations" ? "Schedules" : label === "Mind Map" ? "Mindmap" : label}
             </NavLink>
           ))}
         </nav>

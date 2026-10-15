@@ -103,6 +103,38 @@ describe("notes and projects", () => {
     expect((await c.json(`/api/notes/${sibling.id}`)).note.parent_folder_id).toBeNull();
   });
 
+  it("supports mind maps with a single central node and nested branches", async () => {
+    const c = await loggedIn();
+    const { mindmap, root } = await c.json("/api/mindmaps", { method: "POST", body: { title: "Launch plan" } });
+    expect(root.parent_id).toBeNull();
+    expect(mindmap.title).toBe("Launch plan");
+
+    // Only the auto-created root may have a null parent.
+    expect((await c.call(`/api/mindmaps/${mindmap.id}/nodes`, { method: "POST", body: { text: "orphan" } })).status).toBe(400);
+
+    const { node: branch } = await c.json(`/api/mindmaps/${mindmap.id}/nodes`, { method: "POST", body: { parent_id: root.id, text: "Marketing" } });
+    const { node: leaf } = await c.json(`/api/mindmaps/${mindmap.id}/nodes`, { method: "POST", body: { parent_id: branch.id, text: "Press release" } });
+    expect((await c.json(`/api/mindmaps/${mindmap.id}`)).nodes.map((n: any) => n.id).sort()).toEqual([root.id, branch.id, leaf.id].sort());
+
+    // A node cannot become its own ancestor.
+    expect((await c.call(`/api/mindmaps/${mindmap.id}/nodes/${branch.id}`, { method: "PATCH", body: { parent_id: leaf.id } })).status).toBe(400);
+    // The central node cannot be reparented or removed by deleting it directly.
+    expect((await c.call(`/api/mindmaps/${mindmap.id}/nodes/${root.id}`, { method: "PATCH", body: { parent_id: branch.id } })).status).toBe(400);
+    expect((await c.call(`/api/mindmaps/${mindmap.id}/nodes/${root.id}`, { method: "DELETE" })).status).toBe(400);
+
+    // Renaming the central node updates the mind map's title too.
+    await c.json(`/api/mindmaps/${mindmap.id}/nodes/${root.id}`, { method: "PATCH", body: { text: "Product launch" } });
+    expect((await c.json(`/api/mindmaps/${mindmap.id}`)).mindmap.title).toBe("Product launch");
+
+    // Deleting a branch removes its whole subtree.
+    await c.call(`/api/mindmaps/${mindmap.id}/nodes/${branch.id}`, { method: "DELETE" });
+    const remaining = (await c.json(`/api/mindmaps/${mindmap.id}`)).nodes.map((n: any) => n.id);
+    expect(remaining).toEqual([root.id]);
+
+    await c.call(`/api/mindmaps/${mindmap.id}`, { method: "DELETE" });
+    expect((await c.call(`/api/mindmaps/${mindmap.id}`)).status).toBe(404);
+  });
+
   it("partial updates leave omitted fields unchanged", async () => {
     const c = await loggedIn();
     const { project } = await c.json("/api/projects", { method: "POST", body: { name: "Kitchen", description: "Renovation plan", status: "paused" } });

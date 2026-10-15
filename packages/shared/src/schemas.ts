@@ -97,6 +97,29 @@ export interface Folder {
   updated_at: string;
 }
 
+export interface Mindmap {
+  id: string;
+  /** Mirrors the central node's text. */
+  title: string;
+  created_at: string;
+  updated_at: string;
+  /** Only present when listing mind maps, not on a single fetch. */
+  node_count?: number;
+}
+
+/** One node in a mind map. `parent_id` is null only for the single central node. */
+export interface MindmapNode {
+  id: string;
+  mindmap_id: string;
+  parent_id: string | null;
+  text: string;
+  x: number;
+  y: number;
+  order_index: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -279,6 +302,18 @@ export const folderCreateSchema = z.object({
 });
 export const folderUpdateSchema = z.object({ name: shortText(200), parent_folder_id: id.nullable() }).partial();
 
+export const mindmapCreateSchema = z.object({ title: shortText(200).optional().default("New mind map") });
+export const mindmapRenameSchema = z.object({ title: shortText(200) });
+
+const mindmapCoord = z.number().finite().min(-100_000).max(100_000);
+export const mindmapNodeCreateSchema = z.object({
+  parent_id: id,
+  text: shortText(500),
+  x: mindmapCoord.optional(),
+  y: mindmapCoord.optional(),
+});
+export const mindmapNodeUpdateSchema = z.object({ text: shortText(500), x: mindmapCoord, y: mindmapCoord, parent_id: id }).partial();
+
 export const projectCreateSchema = z.object({
   name: shortText(200),
   description: z.string().max(5000).optional().default(""),
@@ -382,6 +417,10 @@ export const backupSchema = z.object({
     tasks: z.array(backupEntity({ id, title: z.string(), status: z.string(), created_at: z.string(), updated_at: z.string() })).default([]),
     notes: z.array(backupEntity({ id, title: z.string(), content: z.string(), created_at: z.string(), updated_at: z.string() })).default([]),
     folders: z.array(backupEntity({ id, name: z.string(), created_at: z.string(), updated_at: z.string() })).default([]),
+    mindmaps: z.array(backupEntity({ id, title: z.string(), created_at: z.string(), updated_at: z.string() })).default([]),
+    mindmap_nodes: z
+      .array(backupEntity({ id, mindmap_id: id, text: z.string(), x: z.number(), y: z.number(), order_index: z.number(), created_at: z.string(), updated_at: z.string() }))
+      .default([]),
     projects: z.array(backupEntity({ id, name: z.string(), created_at: z.string(), updated_at: z.string() })).default([]),
     automations: z.array(backupEntity({ id, name: z.string(), kind: z.string(), schedule: z.unknown() })).default([]),
   }),

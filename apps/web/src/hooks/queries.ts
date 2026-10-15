@@ -7,6 +7,8 @@ import type {
   Memory,
   MemoryHistory,
   MemoryReview,
+  Mindmap,
+  MindmapNode,
   Note,
   Notification,
   Project,
@@ -30,6 +32,8 @@ export const keys = {
   notes: (q?: string) => ["notes", q ?? ""] as const,
   allNotes: ["notes", "all"] as const,
   folders: ["folders"] as const,
+  mindmaps: ["mindmaps"] as const,
+  mindmap: (id: string) => ["mindmaps", id] as const,
   projects: ["projects"] as const,
   automations: ["automations"] as const,
   notifications: ["notifications"] as const,
@@ -135,6 +139,18 @@ export function useFolders() {
 
 export function useProjects() {
   return useQuery({ queryKey: keys.projects, queryFn: () => api<{ projects: Project[] }>("/projects").then((r) => r.projects) });
+}
+
+export function useMindmaps() {
+  return useQuery({ queryKey: keys.mindmaps, queryFn: () => api<{ mindmaps: Mindmap[] }>("/mindmaps").then((r) => r.mindmaps) });
+}
+
+export function useMindmap(id: string | undefined) {
+  return useQuery({
+    queryKey: keys.mindmap(id ?? ""),
+    queryFn: () => api<{ mindmap: Mindmap; nodes: MindmapNode[] }>(`/mindmaps/${id}`),
+    enabled: !!id,
+  });
 }
 
 export function useAutomations() {

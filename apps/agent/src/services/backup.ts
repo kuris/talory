@@ -37,6 +37,8 @@ export function exportData(s: Services): Backup {
       tasks: db.all(`SELECT * FROM tal_tasks ORDER BY created_at`),
       notes: db.all(`SELECT * FROM tal_notes ORDER BY created_at`),
       folders: db.all(`SELECT * FROM tal_folders ORDER BY created_at`),
+      mindmaps: db.all(`SELECT * FROM tal_mindmaps ORDER BY created_at`),
+      mindmap_nodes: db.all(`SELECT * FROM tal_mindmap_nodes ORDER BY created_at`),
       projects: db.all(`SELECT * FROM tal_projects ORDER BY created_at`),
       automations: db
         .all<Record<string, unknown>>(`SELECT id, name, kind, message, schedule, enabled, created_at, updated_at FROM tal_automations`)
@@ -52,6 +54,7 @@ export interface ImportSummary {
   tasks: number;
   notes: number;
   folders: number;
+  mindmaps: number;
   projects: number;
   automations: number;
   /** Imported automations always arrive paused; the owner enables them. */
@@ -170,6 +173,32 @@ export async function importData(s: Services, raw: unknown): Promise<ImportSumma
         n.created_at, n.updated_at,
       );
     }
+    for (const mm of d.mindmaps) {
+      db.run(
+        `INSERT INTO tal_mindmaps (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET title = excluded.title, updated_at = excluded.updated_at`,
+        mm.id, mm.title, mm.created_at, mm.updated_at,
+      );
+    }
+    const mindmapExists = (id: unknown) => typeof id === "string" && !!db.one(`SELECT 1 AS x FROM tal_mindmaps WHERE id = ?`, id);
+    for (const n of d.mindmap_nodes) {
+      if (!mindmapExists(n.mindmap_id)) continue;
+      // Imported with no parent first; parents are relinked in a second pass once every
+      // node in the backup exists, so order inside the backup never matters.
+      db.run(
+        `INSERT INTO tal_mindmap_nodes (id, mindmap_id, parent_id, text, x, y, order_index, created_at, updated_at) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET text = excluded.text, x = excluded.x, y = excluded.y, order_index = excluded.order_index, updated_at = excluded.updated_at`,
+        n.id, n.mindmap_id, n.text, n.x, n.y, n.order_index, n.created_at, n.updated_at,
+      );
+    }
+    for (const n of d.mindmap_nodes) {
+      const parentId = (n as { parent_id?: unknown }).parent_id;
+      if (typeof parentId !== "string" || !parentId) continue;
+      const parent = db.one<{ mindmap_id: string }>(`SELECT mindmap_id FROM tal_mindmap_nodes WHERE id = ?`, parentId);
+      if (!parent || parent.mindmap_id !== n.mindmap_id) continue;
+      if (s.mindmaps.wouldCycle(n.id, parentId)) continue;
+      db.run(`UPDATE tal_mindmap_nodes SET parent_id = ? WHERE id = ?`, parentId, n.id);
+    }
     let automations = 0;
     for (const a of d.automations) {
       const schedule = scheduleSpecSchema.safeParse(a.schedule);
@@ -204,6 +233,7 @@ export async function importData(s: Services, raw: unknown): Promise<ImportSumma
       tasks: d.tasks.length,
       notes: d.notes.length,
       folders: d.folders.length,
+      mindmaps: d.mindmaps.length,
       projects: d.projects.length,
       automations,
       automations_paused: automations,

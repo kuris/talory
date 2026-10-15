@@ -1,6 +1,7 @@
 import type { ToolDefinition } from "./registry";
 import { taskTools } from "./tasks";
 import { noteTools, projectTools } from "./notes";
+import { mindmapTools } from "./mindmaps";
 import { memoryTools } from "./memories";
 import { reminderTools } from "./reminders";
 import { searchTools } from "./search";
@@ -15,6 +16,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
   ...taskTools,
   ...noteTools,
   ...projectTools,
+  ...mindmapTools,
   ...memoryTools,
   ...reminderTools,
   ...searchTools,

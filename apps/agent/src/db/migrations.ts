@@ -235,6 +235,31 @@ export const MIGRATIONS: Migration[] = [
       `CREATE INDEX IF NOT EXISTS tal_notes_parent_folder ON tal_notes(parent_folder_id)`,
     ],
   },
+  {
+    version: 6,
+    name: "mind maps",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS tal_mindmaps (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS tal_mindmap_nodes (
+        id TEXT PRIMARY KEY,
+        mindmap_id TEXT NOT NULL REFERENCES tal_mindmaps(id) ON DELETE CASCADE,
+        parent_id TEXT REFERENCES tal_mindmap_nodes(id) ON DELETE CASCADE,
+        text TEXT NOT NULL,
+        x REAL NOT NULL DEFAULT 0,
+        y REAL NOT NULL DEFAULT 0,
+        order_index INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS tal_mindmap_nodes_map ON tal_mindmap_nodes(mindmap_id)`,
+      `CREATE INDEX IF NOT EXISTS tal_mindmap_nodes_parent ON tal_mindmap_nodes(parent_id)`,
+    ],
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;

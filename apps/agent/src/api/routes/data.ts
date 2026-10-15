@@ -8,6 +8,10 @@ import {
   memoryStatusSchema,
   memoryUpdateSchema,
   type MemoryReview,
+  mindmapCreateSchema,
+  mindmapNodeCreateSchema,
+  mindmapNodeUpdateSchema,
+  mindmapRenameSchema,
   noteCreateSchema,
   noteUpdateSchema,
   projectCreateSchema,
@@ -206,5 +210,46 @@ dataRoutes.patch("/projects/:id", async (c) => {
 
 dataRoutes.delete("/projects/:id", (c) => {
   c.env.agent.services.projects.delete(c.req.param("id"));
+  return c.json({ deleted: true });
+});
+
+// ---------- Mind maps ----------
+
+dataRoutes.get("/mindmaps", (c) => c.json({ mindmaps: c.env.agent.services.mindmaps.list() }));
+
+dataRoutes.post("/mindmaps", async (c) => {
+  const input = await body(c, mindmapCreateSchema);
+  const { mindmap, root } = c.env.agent.services.mindmaps.create(input);
+  return c.json({ mindmap, root }, 201);
+});
+
+dataRoutes.get("/mindmaps/:id", (c) => {
+  const s = c.env.agent.services.mindmaps;
+  const mindmap = s.require(c.req.param("id"));
+  return c.json({ mindmap, nodes: s.nodes(mindmap.id) });
+});
+
+dataRoutes.patch("/mindmaps/:id", async (c) => {
+  const { title } = await body(c, mindmapRenameSchema);
+  return c.json({ mindmap: c.env.agent.services.mindmaps.rename(c.req.param("id"), title) });
+});
+
+dataRoutes.delete("/mindmaps/:id", (c) => {
+  c.env.agent.services.mindmaps.delete(c.req.param("id"));
+  return c.json({ deleted: true });
+});
+
+dataRoutes.post("/mindmaps/:id/nodes", async (c) => {
+  const input = await body(c, mindmapNodeCreateSchema);
+  return c.json({ node: c.env.agent.services.mindmaps.createNode(c.req.param("id"), input) }, 201);
+});
+
+dataRoutes.patch("/mindmaps/:id/nodes/:nodeId", async (c) => {
+  const patch = await body(c, mindmapNodeUpdateSchema);
+  return c.json({ node: c.env.agent.services.mindmaps.updateNode(c.req.param("id"), c.req.param("nodeId"), patch) });
+});
+
+dataRoutes.delete("/mindmaps/:id/nodes/:nodeId", (c) => {
+  c.env.agent.services.mindmaps.deleteNode(c.req.param("id"), c.req.param("nodeId"));
   return c.json({ deleted: true });
 });
